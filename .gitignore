@@ -1,0 +1,25 @@
+.env
+.env.*
+!.env.example
+!docker/.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Private working documents — never publish
+portfolio_discovery_report.md
+*discovery_report*
