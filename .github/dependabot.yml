@@ -1,22 +1,53 @@
+# Monthly, grouped, minor and patch updates only: keeps the PR list short.
+# Major upgrades are done by hand.
 version: 2
 updates:
   - package-ecosystem: pip
     directory: /backend
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      python:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: npm
     directory: /frontend
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      frontend:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: npm
     directory: /services/intake
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      intake:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      actions:
+        update-types: [minor, patch]
   - package-ecosystem: docker
     directory: /docker
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 1
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
