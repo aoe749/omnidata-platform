@@ -11,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@tanstack/react-table": "^8.20.6",
+    "@tanstack/react-table": "^9.3.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^6.28.1",
