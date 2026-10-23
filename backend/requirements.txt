@@ -4,7 +4,7 @@ SQLAlchemy==2.0.36
 pydantic==2.10.4
 pydantic-settings==2.7.0
 PyJWT==2.10.1
-pymssql==2.3.2
+pymssql==2.4.5
 psycopg[binary]==3.2.3
 PyMySQL==1.1.1
 cryptography==44.0.0
