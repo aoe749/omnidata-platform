@@ -7,4 +7,4 @@ PyJWT==2.10.1
 pymssql==2.3.2
 psycopg[binary]==3.2.3
 PyMySQL==1.1.1
-cryptography==44.0.0
+cryptography==50.0.2
