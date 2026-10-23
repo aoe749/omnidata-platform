@@ -1,6 +1,10 @@
 # OmniData Analytics & Sync Platform
 
-**Three database engines, one pipeline: resumable migration, queue processing without lock contention, and bitmask access control, built on React 19, FastAPI, PostgreSQL 16, MySQL 8.4 and SQL Server.**
+[![CI](https://github.com/aoe749/omnidata-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/aoe749/omnidata-platform/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/aoe749/omnidata-platform/actions/workflows/codeql.yml/badge.svg)](https://github.com/aoe749/omnidata-platform/actions/workflows/codeql.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+**Three database engines, one pipeline: resumable migration, queue processing without lock contention, and bitmask access control, built on React 19, FastAPI, Node.js, PostgreSQL 16, MySQL 8.4 and SQL Server.**
 
 OmniData moves transactional data out of a legacy SQL Server source, classifies every row as new, changed or unchanged, hands it to a PostgreSQL work queue consumed by horizontally scalable workers, and exposes the result through an operations console. Each engine does the job it is best at, and every cross-engine hand-off is designed to be **idempotent and restartable**.
 
@@ -9,10 +13,11 @@ OmniData moves transactional data out of a legacy SQL Server source, classifies 
 | | |
 |---|---|
 | **Backend** | Python 3.12 · FastAPI · SQLAlchemy 2 (three independent connection pools) · Pydantic v2 |
+| **Node.js service** | Node 22 · Fastify 5 · TypeScript (strict) · `pg` · signed, idempotent event intake |
 | **Databases** | SQL Server 2022 Express · PostgreSQL 16 · MySQL 8.4 |
 | **Frontend** | React 19 · TypeScript (strict) · Vite 6 · zustand · TanStack Table |
-| **Delivery** | Docker Compose · nginx · non-root containers · loopback-only published ports |
-| **Quality** | 47 backend tests · 4 frontend tests · state-machine linter · strict type-check in the build |
+| **Delivery** | Docker Compose · nginx · non-root containers · loopback-only published ports · GitHub Actions CI · CodeQL · Dependabot |
+| **Quality** | 77 backend tests · 13 Node service tests · 4 frontend tests · state-machine linter · strict type-check in the build |
 
 ---
 
@@ -75,7 +80,30 @@ Code: [`DataTable.tsx`](frontend/src/components/DataTable.tsx) · [`store/`](fro
 - **One generic `DataTable<T>` on TanStack Table** with fully **server-side pagination, sorting and filtering**: debounced filters, automatic page reset on filter or sort change, in-flight request cancellation so stale responses can never render out of order, recovery when the data shrinks under the current page, and accessible markup (`aria-sort`, table caption, live result counts). The same component powers the transactions, work-queue and migration-run screens, and CSV export reuses the active filters.
 - **Dependency-light visuals:** a hand-written accessible SVG chart, light and dark themes, and responsive layout.
 
-> **A note on Node.js:** the frontend is built and tested with Node 22 tooling (Vite, Vitest, TypeScript). The runtime services are Python; there is no Node.js server in this repository.
+### Node.js: signed event intake
+
+Code: [`services/intake/`](services/intake) · [`app.ts`](services/intake/src/app.ts) · [`signature.ts`](services/intake/src/signature.ts) · [`intake.test.ts`](services/intake/test/intake.test.ts)
+
+A small Fastify service that accepts webhooks from external senders and stores them in PostgreSQL (`inbound_events`).
+
+- **Verified before parsed.** Requests carry `X-Signature: t=<unix>,v1=<hmac-sha256 of "t.body">`. The HMAC covers the exact raw bytes, is compared in constant time, and the JSON is only parsed after it passes.
+- **Replay window.** Timestamps more than 300 seconds old, or in the future, are rejected.
+- **No information leak.** Every signature failure returns the same `401` body; the specific reason is only logged.
+- **Idempotent storage.** The sender's event id is the primary key and the insert uses `ON CONFLICT DO NOTHING`, so a redelivered webhook returns `200 duplicate` and changes nothing.
+- **Hardening.** `helmet` headers, per-client rate limiting, a 64 KB body limit and strict validation of the event shape.
+- **Testable core.** The app is built from injected dependencies (store, clock, limits), so the 13 tests run through Fastify's `inject` with no network and no database.
+
+### LLM cost guard
+
+Code: [`llm_budget.py`](backend/app/domain/llm_budget.py) · [`llm_gateway.py`](backend/app/services/llm_gateway.py) · [`llm_budget_repo.py`](backend/app/repositories/llm_budget_repo.py) · [`test_llm_budget.py`](backend/tests/test_llm_budget.py)
+
+A provider-agnostic gateway that keeps each tenant's LLM spend under a monthly budget.
+
+- **Reserve, call, settle.** The worst-case cost (estimated input plus the output cap) is booked *before* the provider is called, then replaced with the real cost. Concurrent requests therefore cannot overspend together, and a request that cannot be paid for never reaches the provider.
+- **Failure-safe.** If the provider raises, the reservation is released and nothing is charged.
+- **Exact money.** Costs are integer micro-USD and every conversion rounds up, so the guard may over-estimate but never under-count.
+- **Atomic in SQL.** The budget check is one conditional `UPDATE ... WHERE spent + reserved + :amount <= :limit`, so the row lock serialises concurrent reservations with no read-then-write race (`llm_budget_usage` table in PostgreSQL).
+- **Vendor-neutral.** The gateway depends on a small `LlmProvider` protocol, and the 30 tests use a fake provider and no network.
 
 ---
 
@@ -136,7 +164,7 @@ flowchart LR
 
 ## 3. Testing & reliability
 
-**47 automated backend tests** (`pytest`) and 4 frontend tests (`vitest`), plus a strict TypeScript type-check and production build.
+**77 automated backend tests** (`pytest`), 13 Node service tests (`node:test`) and 4 frontend tests (`vitest`), plus strict TypeScript type-checks and production builds. All of them run in GitHub Actions on every push.
 
 | Area | What is verified |
 |---|---|
@@ -146,6 +174,8 @@ flowchart LR
 | Security | scrypt hashing and salting, malformed hashes, token round-trip, tampering and expiry |
 | State machines | Reachability, dead ends, missing sweepers, unresolved actors, and drift between the declared states and the SQL `CHECK` constraints |
 | Query safety | Sort columns only from an allow-list; LIKE wildcards escaped |
+| LLM cost guard | Round-up pricing, reservation limits, release on provider failure, settle at actual cost, and 50 concurrent threads never reserving past the limit (in-memory store); the other cases run on both the in-memory and SQL stores |
+| Node intake | Valid, tampered, replayed and future-dated signatures; duplicate delivery; invalid events; oversize bodies; rate limiting; security headers |
 | **Transaction boundaries** | See below |
 
 **[`test_transaction_boundaries.py`](backend/tests/test_transaction_boundaries.py)** protects the worker against connection starvation and dangling sessions. It verifies that:
@@ -162,9 +192,10 @@ These tests assert the transaction *ordering* contract deterministically (using 
 ```bash
 cd backend  && pip install -r requirements-dev.txt && pytest
 cd frontend && npm install && npm test && npm run build
+cd services/intake && npm install && npm run typecheck && npm test
 ```
 
-> **Verification status:** the unit tests, linter, type-check and frontend build run without any database. The SQL scripts and the full Docker Compose stack are **not yet exercised in an automated integration run**; add one before relying on them in production.
+> **Verification status:** the unit tests, linter, type-checks and builds run without any database. The PostgreSQL, MySQL and SQL Server scripts, the Node service's `pg` store and the full Docker Compose stack (including the `intake` image) are **not yet exercised in an automated integration run**; add one before relying on them in production. The LLM gateway is a tested library module and is not yet exposed through an API route.
 
 ---
 
@@ -198,6 +229,7 @@ Open `docker/.env` and fill in **every** variable. Compose will refuse to start 
 | `JWT_SECRET` | 32+ characters |
 | `DEMO_PASSWORD` | 12+ characters; shared by the four demo accounts |
 | `MSSQL_SA_PASSWORD` | SQL Server complexity rules: 8+ characters with upper, lower, digit and symbol |
+| `INTAKE_SIGNING_SECRET` | 32+ characters; the key senders use to sign events for the Node intake service |
 | `POSTGRES_PASSWORD`, `MYSQL_PASSWORD`, `MYSQL_ROOT_PASSWORD` | Any strong value |
 
 Generate strong values with `python -c "import secrets; print(secrets.token_urlsafe(36))"`.
@@ -211,6 +243,7 @@ docker compose up --build
 | Operations console | <http://localhost:8080> |
 | API and interactive docs | <http://localhost:8000/docs> |
 | Health check | <http://localhost:8000/api/health> |
+| Node intake service | <http://localhost:3000/health> |
 
 All ports are published on `127.0.0.1` only. Sign in as `admin@omnidata.example` with your `DEMO_PASSWORD`, then use the **Pipeline** card on the overview page in order: *simulate source changes → run migration → publish outbox → process queue*. Sign in as `viewer@` to see the same screens with the write controls disabled.
 
@@ -251,11 +284,22 @@ cd ../frontend && npm install && npm run dev                       # http://loca
 | `GET /api/v1/users` · `DELETE /api/v1/users/{id}` (deactivate) | users: read · users: delete |
 | `GET /api/health` | none |
 
+Node intake service (port 3000):
+
+| Method and path | Requires |
+|---|---|
+| `POST /v1/events`: `{ "id", "type", "data" }` with an `X-Signature` header; `202` accepted, `200` duplicate, `401` bad signature, `400` invalid event | valid signature |
+| `GET /health` | none |
+
 ## Repository layout
 
 ```text
 backend/    FastAPI app (routes → services → repositories), ingestion worker, tests, state-machine linter
 frontend/   React 19 + TypeScript + Vite console
+services/   Node.js (Fastify + TypeScript) signed event intake service
 db/         Idempotent SQL for SQL Server, PostgreSQL and MySQL
 docker/     Compose file, Dockerfiles, nginx config, .env.example
+.github/    CI, CodeQL and Dependabot configuration
 ```
+
+Released under the [MIT License](LICENSE).
