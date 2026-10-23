@@ -73,3 +73,25 @@ CREATE TABLE IF NOT EXISTS sync_logs (
 );
 
 CREATE INDEX IF NOT EXISTS ix_sync_logs_created ON sync_logs (created_at DESC);
+
+-- LLM spend per tenant and calendar month (micro-USD). A reservation is booked
+-- before a provider call and replaced by the real cost afterwards; the CHECKs
+-- keep both counters non-negative even if a caller misbehaves.
+CREATE TABLE IF NOT EXISTS llm_budget_usage (
+    tenant_id        TEXT        NOT NULL,
+    period           TEXT        NOT NULL,
+    spent_micros     BIGINT      NOT NULL DEFAULT 0 CHECK (spent_micros >= 0),
+    reserved_micros  BIGINT      NOT NULL DEFAULT 0 CHECK (reserved_micros >= 0),
+    PRIMARY KEY (tenant_id, period)
+);
+
+-- Events accepted by the Node.js intake service. The primary key is the
+-- sender's event id, so a redelivered webhook is a no-op.
+CREATE TABLE IF NOT EXISTS inbound_events (
+    event_id     TEXT        PRIMARY KEY,
+    event_type   TEXT        NOT NULL,
+    payload      JSONB       NOT NULL,
+    received_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS ix_inbound_events_received ON inbound_events (received_at DESC);

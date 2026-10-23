@@ -118,6 +118,26 @@ services:
     depends_on:
       backend: { condition: service_healthy }
 
+  # Node.js service: signed, idempotent webhook intake that writes to PostgreSQL.
+  intake:
+    build:
+      context: ..
+      dockerfile: docker/intake.Dockerfile
+    image: omnidata/intake:dev
+    environment:
+      INTAKE_SIGNING_SECRET: ${INTAKE_SIGNING_SECRET:?set INTAKE_SIGNING_SECRET in docker/.env (32+ chars)}
+      POSTGRES_HOST: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in docker/.env}
+    depends_on:
+      postgres: { condition: service_healthy }
+    ports: ["127.0.0.1:3000:3000"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   frontend:
     build:
       context: ..
