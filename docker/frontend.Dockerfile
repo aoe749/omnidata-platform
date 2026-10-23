@@ -7,7 +7,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # --- serve ---------------------------------------------------------------
-FROM nginx:1.27-alpine
+FROM nginx:1.29-alpine
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /web/dist /usr/share/nginx/html
 EXPOSE 80
